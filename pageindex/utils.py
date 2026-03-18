@@ -12,7 +12,6 @@ import pymupdf
 from io import BytesIO
 from dotenv import load_dotenv
 load_dotenv()
-import logging
 import yaml
 from pathlib import Path
 from types import SimpleNamespace as config
@@ -122,37 +121,103 @@ def get_json_content(response):
     return json_content
          
 
-def extract_json(content):
+def _clean_json_text(text: str) -> str:
+    """
+    Apply a sequence of heuristic cleanups to raw LLM output before JSON parsing.
+    Returns the cleaned string; callers must still call json.loads().
+    """
+    import re as _re
+
+    s = text.strip()
+
+    # Strip closed markdown code fences  (```json ... ```)
+    fence = _re.search(r'```(?:json)?\s*([\s\S]*?)```', s)
+    if fence:
+        s = fence.group(1).strip()
+    else:
+        # Unclosed fence — model was cut off before the closing ```
+        # Extract everything after the opening fence marker
+        unclosed = _re.match(r'```(?:json)?\s*([\s\S]+)', s)
+        if unclosed:
+            candidate = unclosed.group(1).strip()
+            if candidate.startswith('{') or candidate.startswith('['):
+                s = candidate
+
+    # Python literals → JSON literals
+    s = _re.sub(r'\bNone\b',  'null',  s)
+    s = _re.sub(r'\bTrue\b',  'true',  s)
+    s = _re.sub(r'\bFalse\b', 'false', s)
+
+    # Trailing commas before ] or }  (e.g. [1, 2, 3,])
+    s = _re.sub(r',\s*([}\]])', r'\1', s)
+
+    # NOTE: single-quote → double-quote substitution intentionally omitted.
+    # Applying regex substitutions inside already double-quoted string values
+    # corrupts JSON when model output contains patterns like `: 'word'` in prose.
+
+    return s
+
+
+def parse_json_robust(text: str):
+    """
+    Parse JSON from raw LLM output.  Raises ``json.JSONDecodeError`` on failure
+    so callers can decide whether to retry.
+
+    Handles: markdown fences, Python None/True/False, trailing commas,
+             single-quoted keys/values, leading/trailing prose.
+    """
+    if not text or not text.strip():
+        raise json.JSONDecodeError("empty input", text or "", 0)
+
+    cleaned = _clean_json_text(text)
     try:
-        # First, try to extract JSON enclosed within ```json and ```
-        start_idx = content.find("```json")
-        if start_idx != -1:
-            start_idx += 7  # Adjust index to start after the delimiter
-            end_idx = content.rfind("```")
-            json_content = content[start_idx:end_idx].strip()
-        else:
-            # If no delimiters, assume entire content could be JSON
-            json_content = content.strip()
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
 
-        # Clean up common issues that might cause parsing errors
-        json_content = json_content.replace('None', 'null')  # Replace Python None with JSON null
-        json_content = json_content.replace('\n', ' ').replace('\r', ' ')  # Remove newlines
-        json_content = ' '.join(json_content.split())  # Normalize whitespace
+    # Try extracting the substring between first opener and last closer
+    for start_char, end_char in [('{', '}'), ('[', ']')]:
+        start = cleaned.find(start_char)
+        end   = cleaned.rfind(end_char)
+        if start != -1 and end > start:
+            try:
+                return json.loads(cleaned[start:end + 1])
+            except json.JSONDecodeError:
+                pass
 
-        # Attempt to parse and return the JSON object
-        return json.loads(json_content)
-    except json.JSONDecodeError as e:
-        logging.error(f"Failed to extract JSON: {e}")
-        # Try to clean up the content further if initial parsing fails
-        try:
-            # Remove any trailing commas before closing brackets/braces
-            json_content = json_content.replace(',]', ']').replace(',}', '}')
-            return json.loads(json_content)
-        except:
-            logging.error("Failed to parse JSON even after cleanup")
-            return {}
-    except Exception as e:
-        logging.error(f"Unexpected error while extracting JSON: {e}")
+    # Last resort: model truncated the JSON (missing closing brace/bracket).
+    # Count unmatched openers and append the missing closers.
+    for start_char, end_char, closer in [('{', '}', '}'), ('[', ']', ']')]:
+        start = cleaned.find(start_char)
+        if start == -1:
+            continue
+        fragment = cleaned[start:]
+        opens  = fragment.count(start_char)
+        closes = fragment.count(end_char)
+        if opens > closes:
+            patched = fragment + (closer * (opens - closes))
+            try:
+                return json.loads(patched)
+            except json.JSONDecodeError:
+                pass
+
+    raise json.JSONDecodeError(
+        f"Could not parse JSON after cleanup. Raw (first 200 chars): {text[:200]}",
+        text, 0
+    )
+
+
+def extract_json(content):
+    """
+    Best-effort JSON extraction — returns ``{}`` on any failure.
+    Use ``parse_json_robust`` when you need to distinguish failure from empty dict.
+    """
+    if not content:
+        return {}
+    try:
+        return parse_json_robust(content)
+    except (json.JSONDecodeError, Exception) as e:
+        logging.error(f"extract_json failed: {e}")
         return {}
 
 def write_node_id(data, node_id=0):
@@ -322,11 +387,13 @@ class JsonLogger:
             self.log_data.append(message)
         else:
             self.log_data.append({'message': message})
-        # Add new message to the log data
-        
-        # Write entire log data to file
-        with open(self._filepath(), "w") as f:
-            json.dump(self.log_data, f, indent=2)
+
+        try:
+            with open(self._filepath(), "w") as f:
+                json.dump(self.log_data, f, indent=2, default=str)
+        except Exception as exc:
+            import sys
+            print(f"[JsonLogger] Failed to write log to {self._filepath()}: {exc}", file=sys.stderr)
 
     def info(self, message, **kwargs):
         self.log("INFO", message, **kwargs)
@@ -602,22 +669,24 @@ def add_node_text_with_labels(node, pdf_pages):
     return
 
 
-async def generate_node_summary(node, model=None):
+async def generate_node_summary(node, provider=None):
     prompt = f"""You are given a part of a document, your task is to generate a description of the partial document about what are main points covered in the partial document.
 
     Partial Document Text: {node['text']}
-    
+
     Directly return the description, do not include any other text.
     """
-    response = await ChatGPT_API_async(model, prompt)
-    return response
+    from .llm.base import Message
+    msgs = [Message(role="user", content=prompt)]
+    resp = await provider.complete(msgs)
+    return resp.content or ""
 
 
-async def generate_summaries_for_structure(structure, model=None):
+async def generate_summaries_for_structure(structure, provider=None):
     nodes = structure_to_list(structure)
-    tasks = [generate_node_summary(node, model=model) for node in nodes]
+    tasks = [generate_node_summary(node, provider=provider) for node in nodes]
     summaries = await asyncio.gather(*tasks)
-    
+
     for node, summary in zip(nodes, summaries):
         node['summary'] = summary
     return structure
@@ -646,16 +715,18 @@ def create_clean_structure_for_description(structure):
         return structure
 
 
-def generate_doc_description(structure, model=None):
+async def generate_doc_description(structure, provider=None):
     prompt = f"""Your are an expert in generating descriptions for a document.
     You are given a structure of a document. Your task is to generate a one-sentence description for the document, which makes it easy to distinguish the document from other documents.
-        
+
     Document Structure: {structure}
-    
+
     Directly return the description, do not include any other text.
     """
-    response = ChatGPT_API(model, prompt)
-    return response
+    from .llm.base import Message
+    msgs = [Message(role="user", content=prompt)]
+    resp = await provider.complete(msgs)
+    return resp.content or ""
 
 
 def reorder_dict(data, key_order):
@@ -679,6 +750,9 @@ def format_structure(structure, order=None):
 
 
 class ConfigLoader:
+    # Keys that are nested dicts in config.yaml — never treated as flat overrides
+    _NESTED_SECTIONS = frozenset({"llm", "cache", "retry", "pipeline"})
+
     def __init__(self, default_path: str = None):
         if default_path is None:
             default_path = Path(__file__).parent / "config.yaml"
@@ -689,14 +763,28 @@ class ConfigLoader:
         with open(path, "r", encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
 
+    @staticmethod
+    def _dict_to_namespace(d):
+        """Recursively convert a dict to a SimpleNamespace."""
+        if isinstance(d, dict):
+            return config(**{k: ConfigLoader._dict_to_namespace(v) for k, v in d.items()})
+        return d
+
     def _validate_keys(self, user_dict):
-        unknown_keys = set(user_dict) - set(self._default_dict)
+        # Only validate flat (non-nested) keys against defaults
+        flat_defaults = set(self._default_dict) - self._NESTED_SECTIONS
+        flat_user = set(user_dict) - self._NESTED_SECTIONS
+        unknown_keys = flat_user - flat_defaults
         if unknown_keys:
             raise ValueError(f"Unknown config keys: {unknown_keys}")
 
     def load(self, user_opt=None) -> config:
         """
         Load the configuration, merging user options with default values.
+
+        Flat keys (model, toc_check_page_num, …) are merged as before.
+        Nested sections (llm, cache, retry, pipeline) are attached as
+        sub-namespaces: opt.llm.provider, opt.llm.model, opt.cache.enabled, …
         """
         if user_opt is None:
             user_dict = {}
@@ -708,5 +796,18 @@ class ConfigLoader:
             raise TypeError("user_opt must be dict, config(SimpleNamespace) or None")
 
         self._validate_keys(user_dict)
-        merged = {**self._default_dict, **user_dict}
+
+        # Merge flat keys
+        flat_defaults = {k: v for k, v in self._default_dict.items()
+                         if k not in self._NESTED_SECTIONS}
+        flat_user = {k: v for k, v in user_dict.items()
+                     if k not in self._NESTED_SECTIONS}
+        merged = {**flat_defaults, **flat_user}
+
+        # Attach nested sections as sub-namespaces (defaults only; user overrides
+        # to nested sections are intentionally not supported via load() for safety)
+        for section in self._NESTED_SECTIONS:
+            if section in self._default_dict:
+                merged[section] = self._dict_to_namespace(self._default_dict[section])
+
         return config(**merged)

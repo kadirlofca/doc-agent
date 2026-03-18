@@ -1,3 +1,4 @@
+# ── Legacy flat keys (unchanged — existing code reads these directly) ──────────
 model: "gpt-4o-2024-11-20"
 toc_check_page_num: 20
 max_page_num_each_node: 10
@@ -6,3 +7,53 @@ if_add_node_id: "yes"
 if_add_node_summary: "yes"
 if_add_doc_description: "no"
 if_add_node_text: "no"
+
+# ── New nested sections (Phase 1+) ────────────────────────────────────────────
+# Change `provider` here to switch LLM without touching any Python code.
+#
+# Local Ollama setup (default):
+#   provider: ollama
+#   model: glm4:flash
+#
+# OpenAI cloud:
+#   provider: openai
+#   model: gpt-4o
+#
+# Anthropic cloud:
+#   provider: anthropic
+#   model: claude-sonnet-4-6
+#
+# Zhipu cloud (future migration from local GLM-4 Flash):
+#   provider: openai_compatible
+#   model: glm-4-flash
+#   base_url: https://open.bigmodel.cn/api/paas/v4
+#   api_key_env: ZHIPU_API_KEY
+#
+# Google Gemini cloud:
+#   provider: gemini
+#   model: gemini-2.0-flash
+#   api_key_env: GEMINI_API_KEY
+
+llm:
+  provider: "ollama"
+  model: "glm4:flash"
+  # base_url: "http://localhost:11434"   # default; override for remote Ollama
+  # api_key: ""                          # not needed for local Ollama
+  # api_key_env: ""                      # env var name to read API key from
+
+cache:
+  enabled: false
+  backend: "disk"                        # "disk" | "memory"
+  directory: ".cache/prompts"
+  ttl_seconds: 86400                     # 24 h
+
+retry:
+  max_attempts: 3
+  base_delay_seconds: 1.0
+  max_delay_seconds: 30.0
+  backoff_factor: 2.0
+
+pipeline:
+  concurrency: 8                         # max parallel LLM calls (asyncio.Semaphore)
+  chunk_token_budget: 20000              # tokens per context window chunk
+  timeout_seconds: 3600                  # wall-clock timeout for page_index_main (null = no timeout)
