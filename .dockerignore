@@ -1,0 +1,38 @@
+# Git
+.git
+.gitignore
+.github
+
+# Dev files
+.claude
+.pytest_cache
+tests/
+*.md
+*.full
+*.full.bak
+*.html
+
+# Local data
+files/
+index/
+temp/
+logs/
+log/
+notebook/
+SDK/
+parts/
+json_results/
+.cache/
+
+# IDE
+.DS_Store
+__pycache__
+*.pyc
+
+# Dev scripts
+demo_phases.py
+run_pageindex.py
+scripts/
+cookbook/
+tutorials/
+supabase/

@@ -21,13 +21,11 @@ from .base import BaseLLMProvider, LLMResponse, Message
 class GeminiProvider(BaseLLMProvider):
 
     _CONTEXT_WINDOWS: Dict[str, int] = {
-        "gemini-2.5-pro-preview-03-25": 1_048_576,
+        "gemini-2.5-flash":             1_048_576,
+        "gemini-2.5-pro":               1_048_576,
+        "gemini-2.5-flash-lite":        1_048_576,
+        "gemini-2.0-flash":             1_048_576,
         "gemini-2.0-flash-lite":        1_048_576,
-        "gemini-1.5-pro":               2_097_152,
-        "gemini-1.5-pro-latest":        2_097_152,
-        "gemini-1.5-flash":             1_048_576,
-        "gemini-1.5-flash-latest":      1_048_576,
-        "gemini-1.5-flash-8b":          1_048_576,
     }
 
     _TIKTOKEN_APPROX = "cl100k_base"
