@@ -62,7 +62,7 @@ def _init_state():
         "tree": None,
         "page_list": None,
         "provider_obj": None,
-        "provider_key": "anthropic",
+        "provider_key": "gemini",
         "messages": [],
         "index_status": "idle",   # idle | running | done | error
         "index_log": [],
@@ -97,21 +97,63 @@ class _QueueHandler(logging.Handler):
             pass
 
 
+# ── Ollama model discovery ────────────────────────────────────────────────────
 # ── Provider catalogue ────────────────────────────────────────────────────────
+# internal_name → (display_label, factory_provider, base_url, placeholder_key, models, free?)
 _PROVIDERS = {
     # chunk_budget: max tokens sent per LLM request (stay under provider's per-request limit)
     # concurrency:  parallel LLM calls (keep low for free-tier rate limits)
-    "anthropic": {
-        "label":        "Anthropic",
-        "factory":      "anthropic",
+    "gemini": {
+        "label":        "Google Gemini  🆓",
+        "factory":      "gemini",
         "base_url":     "",
-        "key_hint":     "sk-ant-...  — console.anthropic.com",
-        "models":       ["claude-haiku-4-5-20251001", "claude-sonnet-4-6",
-                         "claude-opus-4-6"],
-        "free":         False,
-        "chunk_budget": 20_000,
+        "key_hint":     "AIza...  — aistudio.google.com",
+        "models":       ["gemini-1.5-flash-latest", "gemini-2.0-flash-lite",
+                         "gemini-2.5-pro-preview-03-25", "gemini-1.5-pro-latest",
+                         "gemini-1.5-flash-8b"],
+        "free":         True,
+        "chunk_budget": 16_000,
+        "concurrency":  4,
+        "inter_call_delay": 0.3,   # generous rate limits
+    },
+    "groq": {
+        "label":        "Groq  🆓",
+        "factory":      "openai_compatible",
+        "base_url":     "https://api.groq.com/openai/v1",
+        "key_hint":     "gsk_...  — console.groq.com",
+        "models":       ["llama-3.1-8b-instant", "llama-3.3-70b-versatile",
+                         "gemma2-9b-it", "mixtral-8x7b-32768"],
+        "free":         True,
+        "chunk_budget": 6_000,
+        "concurrency":  1,
+        "inter_call_delay": 3.0,   # tight free-tier TPM limits
+    },
+    "openrouter": {
+        "label":        "OpenRouter  🆓",
+        "factory":      "openai_compatible",
+        "base_url":     "https://openrouter.ai/api/v1",
+        "key_hint":     "sk-or-...  — openrouter.ai",
+        "models":       ["meta-llama/llama-3.1-8b-instruct:free",
+                         "meta-llama/llama-3.2-3b-instruct:free",
+                         "google/gemma-2-9b-it:free",
+                         "mistralai/mistral-7b-instruct:free",
+                         "microsoft/phi-3-mini-128k-instruct:free"],
+        "free":         True,
+        "chunk_budget": 8_000,
         "concurrency":  2,
-        "inter_call_delay": 2.0,
+        "inter_call_delay": 1.0,
+    },
+    "mistral": {
+        "label":        "Mistral AI  🆓",
+        "factory":      "openai_compatible",
+        "base_url":     "https://api.mistral.ai/v1",
+        "key_hint":     "...  — console.mistral.ai",
+        "models":       ["mistral-small-latest", "open-mistral-nemo",
+                         "mistral-large-latest", "codestral-latest"],
+        "free":         True,
+        "chunk_budget": 12_000,
+        "concurrency":  2,
+        "inter_call_delay": 0.5,
     },
     "openai": {
         "label":        "OpenAI",
@@ -122,7 +164,19 @@ _PROVIDERS = {
         "free":         False,
         "chunk_budget": 20_000,
         "concurrency":  8,
-        "inter_call_delay": 0.1,
+        "inter_call_delay": 0.1,   # high rate limits on paid tier
+    },
+    "anthropic": {
+        "label":        "Anthropic",
+        "factory":      "anthropic",
+        "base_url":     "",
+        "key_hint":     "sk-ant-...  — console.anthropic.com",
+        "models":       ["claude-haiku-4-5-20251001", "claude-sonnet-4-6",
+                         "claude-opus-4-6"],
+        "free":         False,
+        "chunk_budget": 20_000,  # Larger chunks = fewer groups = fewer API calls overall
+        "concurrency":  2,       # Tier-1: 50 RPM / 50k TPM — keep low to avoid 429s
+        "inter_call_delay": 2.0, # aggressive delay to stay under 50 RPM
     },
 }
 
@@ -339,7 +393,14 @@ with st.sidebar:
 
     with st.expander("Pipeline settings"):
         timeout_val = st.number_input("Timeout (s, 0=none)", 0, value=3600, step=60)
-        concurrency_val = st.number_input("Max concurrency", 1, value=4, step=1)
+        # Default to the provider's recommended concurrency
+        prov_default_conc = _PROVIDERS.get(
+            st.session_state.get("provider_key", "gemini"), {}
+        ).get("concurrency", 4)
+        concurrency_val = st.number_input(
+            "Max concurrency", 1, value=prov_default_conc, step=1,
+            help="Parallel LLM calls. Lower = safer for free-tier rate limits.",
+        )
 
     st.divider()
 
@@ -391,7 +452,7 @@ if st.session_state.tree is None and st.session_state.index_status not in ("runn
 
             pdf_bytes = uploaded.read()
             provider_obj = st.session_state.provider_obj
-            prov_cfg = _PROVIDERS.get(st.session_state.get("provider_key", "anthropic"), _PROVIDERS["anthropic"])
+            prov_cfg = _PROVIDERS.get(st.session_state.get("provider_key", "gemini"), _PROVIDERS["gemini"])
 
             opt = SimpleNamespace(
                 provider=provider_obj,
@@ -404,7 +465,7 @@ if st.session_state.tree is None and st.session_state.index_status not in ("runn
                 if_add_doc_description="no",
                 pipeline=SimpleNamespace(
                     timeout_seconds=timeout_val if timeout_val > 0 else None,
-                    concurrency=prov_cfg["concurrency"],
+                    concurrency=concurrency_val,  # use UI slider value
                     chunk_token_budget=prov_cfg["chunk_budget"],
                     inter_call_delay=prov_cfg.get("inter_call_delay", 0.5),
                 ),
