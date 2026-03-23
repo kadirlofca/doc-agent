@@ -41,7 +41,7 @@ html, body, [class*="css"] {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 .main .block-container { max-width: 860px; padding: 2rem 2rem 6rem; }
-#MainMenu, footer, header { visibility: hidden; }
+#MainMenu, footer { visibility: hidden; }
 section[data-testid="stSidebar"] {
     background: #f9f9f9;
     border-right: 1px solid #e5e5e5;
@@ -839,19 +839,6 @@ with st.sidebar:
 
     st.divider()
 
-    # ── Pipeline settings ─────────────────────────────────────────────────────
-    with st.expander("Pipeline settings"):
-        timeout_val = st.number_input("Timeout (s, 0=none)", 0, value=3600, step=60)
-        prov_default_conc = _PROVIDERS.get(
-            st.session_state.get("provider_key", "gemini"), {}
-        ).get("concurrency", 4)
-        concurrency_val = st.number_input(
-            "Max concurrency", 1, value=prov_default_conc, step=1,
-            help="Parallel LLM calls. Lower = safer for free-tier rate limits.",
-        )
-
-    st.divider()
-
     # ── My Documents (from Supabase) ──────────────────────────────────────────
     st.markdown("## 📁 My Documents")
 
@@ -1006,8 +993,8 @@ if st.session_state.index_status not in ("running",):
                 if_add_node_summary="no",
                 if_add_doc_description="no",
                 pipeline=SimpleNamespace(
-                    timeout_seconds=timeout_val if timeout_val > 0 else None,
-                    concurrency=concurrency_val,
+                    timeout_seconds=3600,
+                    concurrency=prov_cfg["concurrency"],
                     chunk_token_budget=prov_cfg["chunk_budget"],
                     inter_call_delay=prov_cfg.get("inter_call_delay", 0.5),
                 ),
