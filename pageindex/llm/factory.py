@@ -25,7 +25,9 @@ Supported ``provider`` values
 ------------------------------
 openai            — OpenAI cloud (gpt-4o, gpt-4.1, o1, …)
 anthropic         — Anthropic cloud (claude-3-*, claude-sonnet-4-6, …)
+ollama            — Local Ollama server (glm4:flash, llama3.1, mistral, …)
 openai_compatible — Any OpenAI-compatible endpoint (Zhipu cloud, Together, vLLM, …)
+gemini            — Google Gemini cloud (gemini-2.0-flash, gemini-2.5-pro, …)
 """
 import os
 from types import SimpleNamespace
@@ -124,12 +126,16 @@ def create_provider(llm_config: Dict[str, Any]) -> BaseLLMProvider:
         return _make_openai(llm_config)
     elif provider == "anthropic":
         return _make_anthropic(llm_config)
+    elif provider == "ollama":
+        return _make_ollama(llm_config)
     elif provider == "openai_compatible":
         return _make_openai_compatible(llm_config)
+    elif provider == "gemini":
+        return _make_gemini(llm_config)
     else:
         raise ValueError(
             f"Unknown LLM provider: {provider!r}. "
-            "Expected one of: openai, anthropic, openai_compatible."
+            "Expected one of: openai, anthropic, ollama, openai_compatible, gemini."
         )
 
 
@@ -161,6 +167,19 @@ def _make_anthropic(llm_config: Dict[str, Any]) -> BaseLLMProvider:
     api_key = _resolve_api_key(llm_config, "ANTHROPIC_API_KEY", "Anthropic")
     return AnthropicProvider(model=model, api_key=api_key)
 
+
+def _make_ollama(llm_config: Dict[str, Any]) -> BaseLLMProvider:
+    from .ollama_provider import OllamaProvider
+    model = llm_config.get("model", "glm4:flash")
+    base_url = llm_config.get("base_url")  # None → OllamaProvider uses localhost:11434
+    return OllamaProvider(model=model, base_url=base_url)
+
+
+def _make_gemini(llm_config: Dict[str, Any]) -> BaseLLMProvider:
+    from .gemini_provider import GeminiProvider
+    model = llm_config.get("model", "gemini-2.0-flash-lite")
+    api_key = llm_config.get("api_key") or None  # falls back to env var inside provider
+    return GeminiProvider(model=model, api_key=api_key)
 
 
 def _make_openai_compatible(llm_config: Dict[str, Any]) -> BaseLLMProvider:
