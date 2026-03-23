@@ -148,6 +148,47 @@ _init_state()
 sb = _get_supabase()
 
 
+# ── Progress tracking ─────────────────────────────────────────────────────────
+# Maps pipeline log keywords to (progress_pct, user_friendly_step_label)
+_PROGRESS_STEPS = [
+    ("Extracting pages",          5,  "Extracting pages from PDF…"),
+    ("Found",                    10,  "Pages extracted"),
+    ("Parsing PDF",              12,  "Parsing PDF structure…"),
+    ("start find_toc_pages",     15,  "Scanning for table of contents…"),
+    ("toc found",                20,  "Table of contents found"),
+    ("no toc found",             20,  "No TOC found — generating structure…"),
+    ("start detect_page_index",  25,  "Detecting page numbering…"),
+    ("index found",              30,  "Page index detected"),
+    ("index not found",          30,  "Building page index…"),
+    ("meta_processor mode",      35,  "Processing document metadata…"),
+    ("start toc_transformer",    40,  "Transforming table of contents…"),
+    ("start toc_index_extractor",45,  "Extracting section indices…"),
+    ("Processing group",         50,  "Building document tree…"),
+    ("TOC generation complete",  60,  "Document tree generated"),
+    ("add_page_number_to_toc",   65,  "Mapping pages to sections…"),
+    ("start verify_toc",         70,  "Verifying tree accuracy…"),
+    ("accuracy",                 75,  "Verification complete"),
+    ("start fix_incorrect_toc",  78,  "Fixing incorrect mappings…"),
+    ("divided page_list",        80,  "Processing page groups…"),
+    ("large node",               85,  "Splitting large sections…"),
+    ("Saved to database",        95,  "Saving to database…"),
+    ("Indexing complete",       100,  "Indexing complete!"),
+]
+
+
+def _get_progress(log_lines: list) -> tuple:
+    """Scan log lines and return (progress_pct, step_label)."""
+    pct, label = 0, "Starting…"
+    for line in log_lines:
+        line_lower = line.lower()
+        for keyword, step_pct, step_label in _PROGRESS_STEPS:
+            if keyword.lower() in line_lower:
+                if step_pct > pct:
+                    pct = step_pct
+                    label = step_label
+    return pct, label
+
+
 # ── Custom log handler ────────────────────────────────────────────────────────
 class _QueueHandler(logging.Handler):
     _SUPPRESSED = frozenset({"httpx", "httpcore", "urllib3", "openai._base_client"})
@@ -992,12 +1033,28 @@ if st.session_state.index_status not in ("running",):
 # ── Progress display ──────────────────────────────────────────────────────────
 if st.session_state.index_status == "running":
     doc_name = st.session_state.get("indexing_doc_name", "document")
-    st.markdown(f"### Indexing: {doc_name}")
+    elapsed = time.time() - (st.session_state.get("indexing_start_time") or time.time())
+    elapsed_str = f"{int(elapsed // 60)}:{int(elapsed % 60):02d}"
 
     log_lines = st.session_state.index_log
-    display = "\n".join(log_lines) if log_lines else "Starting…"
-    st.markdown(f'<div class="progress-box">{display}</div>', unsafe_allow_html=True)
-    st.caption("Tip: full LLM call-level logs are printed in your terminal.")
+    pct, step_label = _get_progress(log_lines)
+
+    st.markdown(f"### Indexing: {doc_name}")
+
+    # Progress bar
+    st.progress(min(pct, 99) / 100, text=f"{step_label}  —  {pct}%")
+
+    # Elapsed time
+    st.caption(f"⏱ Elapsed: {elapsed_str}")
+
+    # Collapsible raw logs
+    if log_lines:
+        with st.expander("View detailed logs", expanded=False):
+            st.markdown(
+                f'<div class="progress-box">{"<br>".join(log_lines[-30:])}</div>',
+                unsafe_allow_html=True,
+            )
+
     time.sleep(1.5)
     st.rerun()
 
@@ -1018,12 +1075,17 @@ elif st.session_state.index_status == "error":
         st.session_state.index_status = "idle"
         st.rerun()
 
-# ── Completion log ────────────────────────────────────────────────────────────
+# ── Completion display ───────────────────────────────────────────────────────
 if st.session_state.index_status == "done":
+    elapsed = time.time() - (st.session_state.get("indexing_start_time") or time.time())
+    elapsed_str = f"{int(elapsed // 60)}:{int(elapsed % 60):02d}"
+    doc_name = st.session_state.get("indexing_doc_name", "document")
+
+    st.success(f"**{doc_name}** indexed successfully in {elapsed_str}")
     if st.session_state.index_log:
         with st.expander("Indexing log", expanded=False):
             st.markdown(
-                f'<div class="progress-box">{"<br>".join(st.session_state.index_log)}</div>',
+                f'<div class="progress-box">{"<br>".join(st.session_state.index_log[-30:])}</div>',
                 unsafe_allow_html=True,
             )
     # Reset index status so user can upload more
