@@ -1,0 +1,117 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --animate-shimmer: shimmer-sweep var(--shimmer-duration, 1000ms) linear
+    infinite both;
+  @keyframes shimmer-sweep {
+    from {
+      background-position: 150% 0;
+    }
+    to {
+      background-position: -100% 0;
+    }
+  }
+}
+
+:root {
+  --radius: 0.625rem;
+  /*
+   * Retro CMYK palette
+   * C = #2d9ea6  M = #c43a6e  Y = #d4b83c  K = #1c1917
+   * Paper = #f5eedd (aged newsprint yellow)
+   */
+  --background: #f0e8d4;
+  --foreground: #1c1917;
+  /* Cards / popovers: slightly brighter paper */
+  --card: #faf4e6;
+  --card-foreground: #1c1917;
+  --popover: #faf4e6;
+  --popover-foreground: #1c1917;
+  /* Primary: Cyan */
+  --primary: #2d9ea6;
+  --primary-foreground: #f5eedd;
+  /* Secondary: light Yellow wash */
+  --secondary: #efe4bf;
+  --secondary-foreground: #1c1917;
+  /* Muted: diluted Key on paper */
+  --muted: #e8e0cc;
+  --muted-foreground: #6b6560;
+  /* Accent: Magenta */
+  --accent: #c43a6e;
+  --accent-foreground: #f5eedd;
+  /* Destructive: Magenta full */
+  --destructive: #c43a6e;
+  /* Borders: Key at low opacity on paper */
+  --border: #d5cbaf;
+  --input: #d5cbaf;
+  --ring: #2d9ea6;
+  /* Charts: C, M, Y, K, then a mix */
+  --chart-1: #2d9ea6;
+  --chart-2: #c43a6e;
+  --chart-3: #d4b83c;
+  --chart-4: #1c1917;
+  --chart-5: #6b6560;
+  /* Sidebar: tinted paper */
+  --sidebar: #f0e8d4;
+  --sidebar-foreground: #1c1917;
+  --sidebar-primary: #2d9ea6;
+  --sidebar-primary-foreground: #f5eedd;
+  --sidebar-accent: #e5dcc4;
+  --sidebar-accent-foreground: #1c1917;
+  --sidebar-border: #d5cbaf;
+  --sidebar-ring: #2d9ea6;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  :root {
+    color-scheme: light;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}

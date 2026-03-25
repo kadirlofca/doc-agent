@@ -16,3 +16,8 @@ json_results/*
 LOCAL_PROGRESS.md
 *.full
 *.full.bak
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local

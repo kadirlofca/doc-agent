@@ -1,64 +1,83 @@
 # ============================================================================
-# PageIndex — Docker image for Google Cloud Run
+# PageIndex — Docker image for FastAPI backend + Next.js frontend
 # ============================================================================
-# Multi-stage build: install deps in builder, copy to slim runtime
-# Final image: ~400MB (Python + PyMuPDF + tiktoken + Streamlit)
+# Multi-stage build:
+#   1. Build frontend (Next.js)
+#   2. Install Python deps
+#   3. Runtime: serve both FastAPI and Next.js
 # ============================================================================
 
-# Stage 1: Build dependencies
-FROM python:3.11-slim AS builder
+# Stage 1: Build Next.js frontend
+FROM node:20-slim AS frontend-builder
+
+WORKDIR /frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ .
+
+ENV NEXT_PUBLIC_API_URL=""
+RUN npm run build
+
+# Stage 2: Build Python dependencies
+FROM python:3.11-slim AS backend-builder
 
 WORKDIR /build
 
-# Install build dependencies for PyMuPDF
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc g++ && \
     rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
-
-# Stage 2: Runtime
+# Stage 3: Runtime
 FROM python:3.11-slim
+
+# Install Node.js for Next.js server
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl && \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y --no-install-recommends nodejs && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy installed packages from builder
-COPY --from=builder /install /usr/local
+# Copy Python packages
+COPY --from=backend-builder /install /usr/local
 
-# Copy application code
-COPY app.py .
+# Copy backend code
+COPY backend/ backend/
 COPY pageindex/ pageindex/
 COPY storage/ storage/
 
-# Streamlit config: disable telemetry, set server options
-RUN mkdir -p /root/.streamlit
-RUN cat <<'EOF' > /root/.streamlit/config.toml
-[server]
-headless = true
-port = 8080
-enableCORS = false
-enableXsrfProtection = false
-maxUploadSize = 50
+# Copy built frontend
+COPY --from=frontend-builder /frontend/.next frontend/.next
+COPY --from=frontend-builder /frontend/public frontend/public
+COPY --from=frontend-builder /frontend/package.json frontend/package.json
+COPY --from=frontend-builder /frontend/node_modules frontend/node_modules
 
-[browser]
-gatherUsageStats = false
-
-[theme]
-base = "light"
-EOF
-
-# Cloud Run uses PORT env var (default 8080)
+# Environment
 ENV PORT=8080
 ENV PYTHONUNBUFFERED=1
+ENV NEXT_PUBLIC_API_URL=""
 
-# Health check for Cloud Run
+# Start script: run both backend and frontend
+RUN cat <<'SCRIPT' > /app/start.sh
+#!/bin/bash
+# Start FastAPI backend
+uvicorn backend.main:app --host 0.0.0.0 --port 8000 &
+
+# Start Next.js frontend
+cd /app/frontend && npx next start --port 8080 --hostname 0.0.0.0 &
+
+# Wait for any process to exit
+wait -n
+exit $?
+SCRIPT
+RUN chmod +x /app/start.sh
+
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD curl -f http://localhost:8080/_stcore/health || exit 1
+    CMD curl -f http://localhost:8080/ || exit 1
 
-# Run Streamlit
 EXPOSE 8080
-CMD ["python3", "-m", "streamlit", "run", "app.py", \
-     "--server.port=8080", \
-     "--server.address=0.0.0.0"]
+CMD ["/app/start.sh"]
