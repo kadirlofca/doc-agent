@@ -51,7 +51,7 @@ done
 # ── Step 3: Build Docker image ───────────────────────────────────────────────
 echo ""
 echo "→ Building Docker image..."
-docker build -t ${IMAGE_NAME} .
+docker build --platform linux/amd64 -t ${IMAGE_NAME} .
 
 # ── Step 4: Push to Container Registry ───────────────────────────────────────
 echo ""

@@ -1,0 +1,51 @@
+# ============================================================================
+# PageIndex — Cloud Build auto-deploy on merge to main
+# ============================================================================
+# Trigger setup (GCP Console → Cloud Build → Triggers):
+#   - Event: Push to branch
+#   - Branch: ^main$
+#   - Config: cloudbuild.yaml
+# ============================================================================
+
+steps:
+  # Build Docker image for amd64 (Cloud Run requirement)
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--platform'
+      - 'linux/amd64'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/pageindex:$COMMIT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/pageindex:latest'
+      - '.'
+
+  # Push both tags to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/pageindex:$COMMIT_SHA']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/pageindex:latest']
+
+  # Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'pageindex'
+      - '--image=gcr.io/$PROJECT_ID/pageindex:$COMMIT_SHA'
+      - '--region=us-central1'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--port=8080'
+      - '--memory=2Gi'
+      - '--cpu=2'
+      - '--timeout=3600'
+      - '--min-instances=0'
+      - '--max-instances=3'
+      - '--set-secrets=SUPABASE_URL=SUPABASE_URL:latest,SUPABASE_ANON_KEY=SUPABASE_ANON_KEY:latest,SUPABASE_SERVICE_KEY=SUPABASE_SERVICE_KEY:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: '1800s'
