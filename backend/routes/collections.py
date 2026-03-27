@@ -1,14 +1,18 @@
 """
 collections.py — Collection listing and collection-scoped document queries.
 """
+import logging
+
 from fastapi import APIRouter, HTTPException, Request
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/collections", tags=["collections"])
 
 # Column list shared by document queries
 _DOC_COLUMNS = (
     "id, name, page_count, total_tokens, status, provider_used, "
-    "model_used, indexing_duration_ms, created_at, indexed_at, error_message, "
+    "model_used, indexing_duration_ms, created_at, indexed_at, "
     "collection_id, is_global"
 )
 
@@ -46,7 +50,8 @@ async def list_collections(request: Request):
         return collections
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to load collections: {e}")
+        logger.exception("Failed to load collections")
+        raise HTTPException(status_code=500, detail="Failed to load collections")
 
 
 @router.get("/{collection_id}/documents")
@@ -91,4 +96,5 @@ async def list_collection_documents(collection_id: str, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to load collection documents: {e}")
+        logger.exception("Failed to load collection documents for %s", collection_id)
+        raise HTTPException(status_code=500, detail="Failed to load collection documents")

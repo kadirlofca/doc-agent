@@ -11,10 +11,12 @@ export function middleware(request: NextRequest) {
   // First visit: generate user ID and set cookie
   const newUserId = crypto.randomUUID();
   const response = NextResponse.next();
+  const isProduction = process.env.NODE_ENV === "production";
   response.cookies.set("pageindex_user_id", newUserId, {
     maxAge: 60 * 60 * 24 * 365,
     httpOnly: true,
     sameSite: "lax",
+    secure: isProduction,
     path: "/",
   });
 

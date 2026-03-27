@@ -3,12 +3,15 @@ documents.py — Document upload, listing, loading, deletion, and indexing progr
 """
 import asyncio
 import json
+import logging
 import time
 from typing import List, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request, UploadFile, File
 from sse_starlette.sse import EventSourceResponse
+
+logger = logging.getLogger(__name__)
 
 from backend.services.indexing import (
     run_indexing, get_progress, get_job_queue, get_all_active_jobs,
@@ -34,7 +37,7 @@ async def list_documents(
         columns = (
             "id, name, page_count, total_tokens, status, provider_used, "
             "model_used, indexing_duration_ms, created_at, indexed_at, "
-            "error_message, collection_id, is_global"
+            "collection_id, is_global"
         )
         query = sb.table("documents").select(columns)
 
@@ -47,12 +50,29 @@ async def list_documents(
         result = query.order("created_at", desc=True).execute()
         return result.data
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to load documents: {e}")
+        logger.exception("Failed to load documents for user %s", user_id[:8])
+        raise HTTPException(status_code=500, detail="Failed to load documents")
 
 
 @router.get("/indexing-progress/{doc_id}")
-async def indexing_progress(doc_id: str):
-    """SSE endpoint streaming indexing progress for a specific document."""
+async def indexing_progress(doc_id: str, request: Request):
+    """SSE endpoint streaming indexing progress for a document owned by the current user."""
+    # Verify the document belongs to this user or is global
+    sb = request.app.state.supabase
+    user_id = request.state.user_id
+    if sb:
+        owner_check = (
+            sb.table("documents")
+            .select("id")
+            .eq("id", doc_id)
+            .or_(f"is_global.eq.true,user_id.eq.{user_id}")
+            .execute()
+        )
+        if not owner_check.data:
+            async def denied_stream():
+                yield {"event": "error", "data": json.dumps({"error": "Document not found"})}
+            return EventSourceResponse(denied_stream())
+
     async def event_stream():
         q = get_job_queue(doc_id)
         if not q:
@@ -117,6 +137,7 @@ async def get_document(doc_id: str, request: Request):
             .select("name, tree_json, pages_json")
             .eq("id", doc_id)
             .eq("status", "indexed")
+            .or_(f"is_global.eq.true,user_id.eq.{user_id}")
             .single()
             .execute()
         )
@@ -134,7 +155,8 @@ async def get_document(doc_id: str, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to load document: {e}")
+        logger.exception("Failed to load document %s", doc_id[:8])
+        raise HTTPException(status_code=500, detail="Failed to load document")
 
 
 @router.post("/upload")
@@ -156,8 +178,12 @@ async def upload_documents(
     provider_key = user_session.get("provider_key", "gemini")
     provider_cfg = PROVIDERS.get(provider_key, PROVIDERS["gemini"])
 
-    # Determine if this is a global collection upload
-    is_global = collection_id in ("curam_web_client", "curam_web_server")
+    # Only the admin script can upload to global collections.
+    # Regular users are forced to user_uploads to prevent privilege escalation.
+    _GLOBAL_COLLECTIONS = {"curam_web_client", "curam_web_server"}
+    if collection_id in _GLOBAL_COLLECTIONS:
+        collection_id = "user_uploads"
+    is_global = False
 
     doc_ids = []
     for file in files:
@@ -182,7 +208,8 @@ async def upload_documents(
                     "is_global": is_global,
                 }).execute()
             except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Failed to create document record: {e}")
+                logger.exception("Failed to create document record")
+                raise HTTPException(status_code=500, detail="Failed to create document record")
 
         # Start background indexing
         asyncio.create_task(
@@ -220,7 +247,8 @@ async def delete_document(doc_id: str, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete document: {e}")
+        logger.exception("Failed to delete document %s", doc_id[:8])
+        raise HTTPException(status_code=500, detail="Failed to delete document")
 
     # Remove from session cache
     sessions = request.app.state.sessions

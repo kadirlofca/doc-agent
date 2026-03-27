@@ -44,10 +44,12 @@ export async function POST(req: Request) {
   });
 
   if (!backendRes.ok) {
+    // Parse backend error but only forward user-safe messages
     const error = await backendRes.json().catch(() => ({
-      detail: "Backend error",
+      detail: "Something went wrong",
     }));
-    return new Response(JSON.stringify({ error: error.detail }), {
+    const safeDetail = error.detail || "Something went wrong";
+    return new Response(JSON.stringify({ error: safeDetail }), {
       status: backendRes.status,
       headers: { "Content-Type": "application/json" },
     });

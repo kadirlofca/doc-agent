@@ -6,12 +6,15 @@ and conversation history. Uses Supabase for persistence and anonymous user sessi
 """
 import logging
 import os
+import re
 from pathlib import Path
 from uuid import uuid4
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
@@ -26,7 +29,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ── FastAPI app ──────────────────────────────────────────────────────────────
-app = FastAPI(title="Doc Agent API", version="1.0.0")
+_is_production = os.environ.get("ENV", "").lower() == "production" or bool(os.environ.get("SUPABASE_SERVICE_KEY"))
+
+app = FastAPI(
+    title="Doc Agent API",
+    version="1.0.0",
+    docs_url=None if _is_production else "/docs",
+    redoc_url=None if _is_production else "/redoc",
+    openapi_url=None if _is_production else "/openapi.json",
+)
 
 # CORS — allow the Next.js frontend
 app.add_middleware(
@@ -71,8 +82,8 @@ _known_users: set = set()
 async def user_session_middleware(request: Request, call_next):
     user_id = request.cookies.get("pageindex_user_id")
 
-    if not user_id:
-        # Fallback: generate one for direct backend access (e.g. health checks)
+    # Validate UUID format to prevent filter injection via crafted cookies
+    if not user_id or not _UUID_RE.match(user_id):
         user_id = str(uuid4())
 
     request.state.user_id = user_id

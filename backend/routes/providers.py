@@ -120,7 +120,7 @@ def friendly_error(exc: Exception, provider_key: str = "", model: str = "") -> s
                                "network", "unreachable")):
         return f"Connection failed to {provider_label} API. Check your internet connection."
 
-    return f"Error: {type(exc).__name__}: {str(exc)[:200]}"
+    return "An unexpected error occurred. Please try again or switch provider/model."
 
 
 class ConnectRequest(BaseModel):

@@ -320,39 +320,7 @@ def cache_put(client: Client, hash_key: str, model: str, response: Dict, ttl_sec
 
 
 # ── User API Key Operations ──────────────────────────────────────────────────
-
-def save_api_key(client: Client, user_id: str, provider: str, api_key: str) -> None:
-    """Save (or update) a user's API key for a provider."""
-    # In production, encrypt before storing. For now, Supabase encrypts at rest.
-    client.table("user_api_keys").upsert({
-        "user_id": user_id,
-        "provider": provider,
-        "encrypted_key": api_key,  # TODO: add application-level encryption
-    }).execute()
-
-
-def get_api_key(client: Client, user_id: str, provider: str) -> Optional[str]:
-    """Get a user's API key for a provider."""
-    try:
-        result = (
-            client.table("user_api_keys")
-            .select("encrypted_key")
-            .eq("user_id", user_id)
-            .eq("provider", provider)
-            .single()
-            .execute()
-        )
-        return result.data["encrypted_key"] if result.data else None
-    except Exception:
-        return None
-
-
-def get_all_api_keys(client: Client, user_id: str) -> Dict[str, str]:
-    """Get all API keys for a user. Returns {provider: key}."""
-    result = (
-        client.table("user_api_keys")
-        .select("provider, encrypted_key")
-        .eq("user_id", user_id)
-        .execute()
-    )
-    return {row["provider"]: row["encrypted_key"] for row in result.data}
+# SECURITY NOTE: API keys are kept in server-side sessions only (in-memory).
+# They are NOT persisted to the database. The functions below are intentionally
+# removed to prevent plaintext key storage. If persistence is needed in the
+# future, add application-level encryption with a server-only master key.

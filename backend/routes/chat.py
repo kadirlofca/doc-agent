@@ -2,11 +2,14 @@
 chat.py — RAG Q&A endpoint.
 """
 import asyncio
+import logging
 import time
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 from backend.services.rag import run_rag_multi
 from backend.routes.providers import friendly_error
@@ -47,7 +50,7 @@ async def chat(body: ChatRequest, request: Request):
         if doc_id in loaded_docs:
             doc_data_list.append(loaded_docs[doc_id])
             continue
-        # Try loading from Supabase
+        # Try loading from Supabase (only user's own docs or global docs)
         if sb:
             try:
                 result = (
@@ -55,6 +58,7 @@ async def chat(body: ChatRequest, request: Request):
                     .select("name, tree_json, pages_json")
                     .eq("id", doc_id)
                     .eq("status", "indexed")
+                    .or_(f"is_global.eq.true,user_id.eq.{user_id}")
                     .single()
                     .execute()
                 )
@@ -96,24 +100,32 @@ async def chat(body: ChatRequest, request: Request):
 
     latency_ms = int((time.time() - start_t) * 1000)
 
-    # Save messages to Supabase
+    # Save messages to Supabase (only if conversation belongs to this user)
     conv_id = body.conversation_id
     if sb and conv_id:
         try:
-            sb.table("messages").insert({
-                "conversation_id": conv_id,
-                "role": "user",
-                "content": query,
-                "sources": [],
-            }).execute()
-            sb.table("messages").insert({
-                "conversation_id": conv_id,
-                "role": "assistant",
-                "content": answer,
-                "sources": [],
-                "model_used": provider_model,
-                "latency_ms": latency_ms,
-            }).execute()
+            owner_check = (
+                sb.table("conversations")
+                .select("id")
+                .eq("id", conv_id)
+                .eq("user_id", user_id)
+                .execute()
+            )
+            if owner_check.data:
+                sb.table("messages").insert({
+                    "conversation_id": conv_id,
+                    "role": "user",
+                    "content": query,
+                    "sources": [],
+                }).execute()
+                sb.table("messages").insert({
+                    "conversation_id": conv_id,
+                    "role": "assistant",
+                    "content": answer,
+                    "sources": [],
+                    "model_used": provider_model,
+                    "latency_ms": latency_ms,
+                }).execute()
         except Exception:
             pass
 

@@ -166,22 +166,25 @@ async def run_indexing(
                 }).eq("id", doc_id).execute()
                 await q.put(("log", f"Saved to database ({duration_ms / 1000:.1f}s)"))
             except Exception as e:
-                await q.put(("log", f"Database save failed: {e}"))
+                logger.exception("Database save failed for doc %s", doc_id[:8])
+                await q.put(("log", "Database save failed — please try again"))
 
         await q.put(("log", "Indexing complete!"))
         await q.put(("done", result, page_list))
 
     except Exception as exc:
         import traceback
-        tb = traceback.format_exc()
-        await q.put(("log", f"Error: {exc}"))
-        await q.put(("log", tb))
-        await q.put(("error", str(exc)))
+        logger.error("Indexing failed for doc %s: %s\n%s", doc_id[:8], exc, traceback.format_exc())
+        # Send a safe message to the client — no tracebacks or internal details
+        await q.put(("log", "Indexing failed. Please try again or use a different provider."))
+        await q.put(("error", "Indexing failed"))
         if sb:
             try:
+                # Store a sanitized error for the document record
+                safe_error = f"{type(exc).__name__}: {str(exc)[:200]}"
                 sb.table("documents").update({
                     "status": "failed",
-                    "error_message": str(exc)[:2000],
+                    "error_message": safe_error,
                 }).eq("id", doc_id).execute()
             except Exception:
                 pass

@@ -1,11 +1,14 @@
 """
 conversations.py — Conversation CRUD endpoints.
 """
+import logging
 from typing import Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 
@@ -21,17 +24,21 @@ async def list_conversations(request: Request):
     sb = request.app.state.supabase
     if not sb:
         return []
+    user_id = request.state.user_id
+
     try:
         result = (
             sb.table("conversations")
             .select("id, title, doc_ids, message_count, created_at, last_message_at")
+            .eq("user_id", user_id)
             .order("last_message_at", desc=True)
             .limit(20)
             .execute()
         )
         return result.data
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to load conversations: {e}")
+        logger.exception("Failed to load conversations for user %s", user_id[:8])
+        raise HTTPException(status_code=500, detail="Failed to load conversations")
 
 
 @router.post("")
@@ -53,16 +60,31 @@ async def create_conversation(body: CreateConversationRequest, request: Request)
         }).execute()
         return {"id": conv_id, "title": body.title, "doc_ids": body.doc_ids}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create conversation: {e}")
+        logger.exception("Failed to create conversation for user %s", user_id[:8])
+        raise HTTPException(status_code=500, detail="Failed to create conversation")
 
 
 @router.get("/{conv_id}/messages")
 async def get_conversation_messages(conv_id: str, request: Request):
-    """Get all messages for a conversation."""
+    """Get all messages for a conversation owned by the current user."""
     sb = request.app.state.supabase
     if not sb:
         return []
+
+    user_id = request.state.user_id
+
     try:
+        # Verify conversation belongs to this user
+        owner_check = (
+            sb.table("conversations")
+            .select("id")
+            .eq("id", conv_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+        if not owner_check.data:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
         result = (
             sb.table("messages")
             .select("id, role, content, sources, model_used, latency_ms, created_at")
@@ -72,18 +94,26 @@ async def get_conversation_messages(conv_id: str, request: Request):
             .execute()
         )
         return result.data
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to load messages: {e}")
+        logger.exception("Failed to load messages for conversation %s", conv_id[:8])
+        raise HTTPException(status_code=500, detail="Failed to load messages")
 
 
 @router.delete("/{conv_id}")
 async def delete_conversation(conv_id: str, request: Request):
-    """Delete a conversation and its messages."""
+    """Delete a conversation and its messages (owner only)."""
     sb = request.app.state.supabase
     if not sb:
         return {"status": "deleted"}
+
+    user_id = request.state.user_id
+
     try:
-        sb.table("conversations").delete().eq("id", conv_id).execute()
+        # Only delete if owned by current user
+        sb.table("conversations").delete().eq("id", conv_id).eq("user_id", user_id).execute()
         return {"status": "deleted"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete conversation: {e}")
+        logger.exception("Failed to delete conversation %s", conv_id[:8])
+        raise HTTPException(status_code=500, detail="Failed to delete conversation")
