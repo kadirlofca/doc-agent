@@ -54,27 +54,29 @@ export async function POST(req: Request) {
   }
 
   const result = await backendRes.json();
+  const content = result.content || "";
 
-  // Return as AI SDK data stream format
+  // Return as AI SDK v6 UIMessageStream format (SSE with JSON chunks)
+  // Each chunk needs an `id` to identify the text part
+  const partId = crypto.randomUUID();
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     start(controller) {
-      controller.enqueue(
-        encoder.encode(`0:${JSON.stringify(result.content)}\n`),
-      );
-      controller.enqueue(
-        encoder.encode(
-          `d:${JSON.stringify({ finishReason: "stop", usage: { promptTokens: 0, completionTokens: 0 } })}\n`,
-        ),
-      );
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "text-start", id: partId })}\n\n`));
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "text-delta", id: partId, delta: content })}\n\n`));
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "text-end", id: partId })}\n\n`));
+      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
       controller.close();
     },
   });
 
   return new Response(stream, {
     headers: {
-      "Content-Type": "text/plain; charset=utf-8",
-      "X-Vercel-AI-Data-Stream": "v1",
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+      "x-vercel-ai-ui-message-stream": "v1",
+      "x-accel-buffering": "no",
     },
   });
 }

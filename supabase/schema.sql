@@ -37,7 +37,20 @@ CREATE TRIGGER on_auth_user_created
     FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
 
--- 2. DOCUMENTS TABLE
+-- 2. COLLECTIONS TABLE
+-- Document collections: global (shared) or per-user
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.collections (
+    id          TEXT PRIMARY KEY,              -- slug: 'curam_web_client', etc.
+    name        TEXT NOT NULL,                 -- display name
+    description TEXT,
+    icon        TEXT DEFAULT '📁',
+    is_global   BOOLEAN DEFAULT FALSE,         -- true = shared across all users
+    created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+
+-- 3. DOCUMENTS TABLE
 -- Stores metadata + indexed tree JSON for each uploaded PDF
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS public.documents (
@@ -56,6 +69,8 @@ CREATE TABLE IF NOT EXISTS public.documents (
     pages_json      JSONB,                              -- page_list: [[text, tokens], ...]
     pdf_storage_path TEXT,                              -- path in Supabase Storage bucket
     indexing_duration_ms INT,                           -- how long indexing took
+    collection_id   TEXT REFERENCES public.collections(id), -- which collection this belongs to
+    is_global       BOOLEAN DEFAULT FALSE,              -- true = visible to all users
     created_at      TIMESTAMPTZ DEFAULT NOW(),
     indexed_at      TIMESTAMPTZ
 );
@@ -63,6 +78,8 @@ CREATE TABLE IF NOT EXISTS public.documents (
 -- Index for fast user document lookups
 CREATE INDEX IF NOT EXISTS idx_documents_user_id ON public.documents(user_id);
 CREATE INDEX IF NOT EXISTS idx_documents_status ON public.documents(status);
+CREATE INDEX IF NOT EXISTS idx_documents_collection ON public.documents(collection_id);
+CREATE INDEX IF NOT EXISTS idx_documents_global ON public.documents(is_global) WHERE is_global = TRUE;
 
 
 -- 3. CONVERSATIONS TABLE
@@ -138,6 +155,7 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_user ON public.user_api_keys(user_id);
 
 -- Enable RLS on all tables
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.collections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.documents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.conversations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
@@ -148,8 +166,12 @@ ALTER TABLE public.user_api_keys ENABLE ROW LEVEL SECURITY;
 CREATE POLICY users_select ON public.users FOR SELECT USING (auth.uid() = id);
 CREATE POLICY users_update ON public.users FOR UPDATE USING (auth.uid() = id);
 
--- DOCUMENTS: users see only their own documents
-CREATE POLICY docs_select ON public.documents FOR SELECT USING (auth.uid() = user_id);
+-- COLLECTIONS: everyone can read
+CREATE POLICY collections_select ON public.collections FOR SELECT USING (true);
+
+-- DOCUMENTS: users see their own docs + all global docs
+CREATE POLICY docs_select ON public.documents FOR SELECT
+    USING (is_global = TRUE OR auth.uid() = user_id);
 CREATE POLICY docs_insert ON public.documents FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY docs_update ON public.documents FOR UPDATE USING (auth.uid() = user_id);
 CREATE POLICY docs_delete ON public.documents FOR DELETE USING (auth.uid() = user_id);

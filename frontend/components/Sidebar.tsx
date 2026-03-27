@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { ProviderConfig } from "./ProviderConfig";
-import { FileUpload } from "./FileUpload";
-import { DocumentList } from "./DocumentList";
 import { ConversationHistory } from "./ConversationHistory";
-import { getHealth } from "@/lib/api";
+import { getHealth, getDocuments } from "@/lib/api";
+import type { Document } from "@/lib/types";
 import {
   Sidebar,
   SidebarContent,
@@ -14,11 +13,19 @@ import {
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarGroupContent,
   SidebarRail,
   SidebarSeparator,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
-import { FileTextIcon } from "lucide-react";
+import {
+  FileTextIcon,
+  LayoutGridIcon,
+  XIcon,
+  CheckIcon,
+} from "lucide-react";
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   activeDocIds: string[];
@@ -29,6 +36,7 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   activeConversationId: string | null;
   onSelectConversation: (convId: string) => void;
   onNewConversation: () => void;
+  onBrowseCollections: () => void;
 }
 
 export function AppSidebar({
@@ -40,9 +48,11 @@ export function AppSidebar({
   activeConversationId,
   onSelectConversation,
   onNewConversation,
+  onBrowseCollections,
   ...props
 }: AppSidebarProps) {
   const [supabaseStatus, setSupabaseStatus] = useState<string | null>(null);
+  const [docNames, setDocNames] = useState<Record<string, string>>({});
 
   useEffect(() => {
     getHealth()
@@ -52,6 +62,27 @@ export function AppSidebar({
         setSupabaseStatus("unreachable");
       });
   }, []);
+
+  // Fetch doc names for selected docs
+  const fetchDocNames = useCallback(async () => {
+    if (activeDocIds.length === 0) return;
+    try {
+      const docs: Document[] = await getDocuments();
+      const names: Record<string, string> = {};
+      for (const doc of docs) {
+        if (activeDocIds.includes(doc.id)) {
+          names[doc.id] = doc.name;
+        }
+      }
+      setDocNames(names);
+    } catch {
+      // ignore
+    }
+  }, [activeDocIds]);
+
+  useEffect(() => {
+    fetchDocNames();
+  }, [fetchDocNames, refreshTrigger]);
 
   return (
     <Sidebar {...props}>
@@ -77,13 +108,58 @@ export function AppSidebar({
       <SidebarContent className="px-1">
         <ProviderConfig onConnected={onProviderConnected} />
         <SidebarSeparator />
-        <FileUpload onUploadComplete={onDocumentsUploaded} />
+
+        {/* Browse Collections button */}
+        <SidebarGroup className="p-0">
+          <SidebarGroupContent className="px-2 py-1">
+            <button
+              onClick={onBrowseCollections}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            >
+              <LayoutGridIcon className="size-4" />
+              Browse Collections
+            </button>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
         <SidebarSeparator />
-        <DocumentList
-          activeDocIds={activeDocIds}
-          onToggleDoc={onToggleDoc}
-          refreshTrigger={refreshTrigger}
-        />
+
+        {/* Selected Documents summary */}
+        <SidebarGroup className="p-0">
+          <SidebarGroupLabel className="px-2">
+            Selected Documents
+            {activeDocIds.length > 0 && (
+              <span className="ml-auto rounded-full bg-sidebar-primary px-1.5 text-[10px] text-sidebar-primary-foreground">
+                {activeDocIds.length}
+              </span>
+            )}
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            {activeDocIds.length === 0 ? (
+              <p className="px-2 py-3 text-center text-[11px] text-muted-foreground">
+                No documents selected. Browse a collection to select documents.
+              </p>
+            ) : (
+              <SidebarMenu>
+                {activeDocIds.map((docId) => (
+                  <SidebarMenuItem key={docId}>
+                    <SidebarMenuButton isActive tooltip={docNames[docId] || docId}>
+                      <CheckIcon className="size-4 text-primary" />
+                      <span className="truncate">{docNames[docId] || docId.slice(0, 8)}</span>
+                    </SidebarMenuButton>
+                    <button
+                      onClick={() => onToggleDoc(docId)}
+                      className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-foreground [li:hover_&]:opacity-100"
+                    >
+                      <XIcon className="size-3.5" />
+                    </button>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            )}
+          </SidebarGroupContent>
+        </SidebarGroup>
+
         <SidebarSeparator />
         <ConversationHistory
           activeConversationId={activeConversationId}

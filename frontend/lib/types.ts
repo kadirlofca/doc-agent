@@ -1,3 +1,13 @@
+export interface Collection {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  is_global: boolean;
+  doc_count: number;
+  created_at: string;
+}
+
 export interface Document {
   id: string;
   name: string;
@@ -10,6 +20,8 @@ export interface Document {
   created_at: string;
   indexed_at: string | null;
   error_message: string | null;
+  collection_id: string | null;
+  is_global: boolean;
 }
 
 export interface DocumentData {

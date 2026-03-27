@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-from backend.routes import documents, chat, providers, conversations
+from backend.routes import documents, chat, providers, conversations, collections
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -97,6 +97,7 @@ async def user_session_middleware(request: Request, call_next):
 
 # ── Routes ───────────────────────────────────────────────────────────────────
 app.include_router(providers.router)
+app.include_router(collections.router)
 app.include_router(documents.router)
 app.include_router(chat.router)
 app.include_router(conversations.router)

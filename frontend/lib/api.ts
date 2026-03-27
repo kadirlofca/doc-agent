@@ -1,4 +1,5 @@
 import type {
+  Collection,
   Document,
   DocumentData,
   Provider,
@@ -32,6 +33,16 @@ export async function getHealth(): Promise<{ status: string; supabase: string }>
   return apiFetch("/health");
 }
 
+// ── Collections ─────────────────────────────────────────────────────────────
+
+export async function getCollections(): Promise<Collection[]> {
+  return apiFetch<Collection[]>("/collections");
+}
+
+export async function getCollectionDocuments(collectionId: string): Promise<Document[]> {
+  return apiFetch<Document[]>(`/collections/${collectionId}/documents`);
+}
+
 // ── Documents ───────────────────────────────────────────────────────────────
 
 export async function getDocuments(): Promise<Document[]> {
@@ -42,10 +53,13 @@ export async function getDocument(docId: string): Promise<DocumentData> {
   return apiFetch<DocumentData>(`/documents/${docId}`);
 }
 
-export async function uploadDocuments(files: File[]): Promise<UploadResult> {
+export async function uploadDocuments(files: File[], collectionId?: string): Promise<UploadResult> {
   const formData = new FormData();
   for (const file of files) {
     formData.append("files", file);
+  }
+  if (collectionId) {
+    formData.append("collection_id", collectionId);
   }
   const res = await fetch(`${PREFIX}/documents/upload`, {
     method: "POST",

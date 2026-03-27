@@ -100,8 +100,8 @@ async def run_indexing(
     start_time = time.time()
 
     try:
-        from pageindex.page_index import page_index_main
-        from pageindex.utils import get_page_tokens
+        from pageindex.page_index import tree_parser
+        from pageindex.utils import get_page_tokens, write_node_id, get_pdf_name, JsonLogger
 
         await q.put(("log", "Extracting pages from PDF..."))
         page_list = await asyncio.to_thread(get_page_tokens, BytesIO(pdf_bytes))
@@ -143,7 +143,15 @@ async def run_indexing(
             ),
         )
 
-        result = await asyncio.to_thread(page_index_main, BytesIO(pdf_bytes), opt=opt)
+        # Call the async tree_parser directly instead of page_index_main
+        # (which uses asyncio.run() internally, causing event loop conflicts)
+        pi_logger = JsonLogger(BytesIO(pdf_bytes))
+        structure = await tree_parser(page_list, opt, doc=BytesIO(pdf_bytes), logger=pi_logger)
+        write_node_id(structure)
+        result = {
+            'doc_name': get_pdf_name(BytesIO(pdf_bytes)),
+            'structure': structure,
+        }
         duration_ms = int((time.time() - start_time) * 1000)
 
         if sb:
