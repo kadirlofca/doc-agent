@@ -41,6 +41,15 @@ export async function middleware(request: NextRequest) {
 
   // Not logged in — redirect to login (except API routes)
   if (!user && !pathname.startsWith("/api/")) {
+    // On Cloud Run, nextUrl uses internal origin (0.0.0.0:8080).
+    // Use forwarded headers to build the correct public redirect URL.
+    const forwardedHost = request.headers.get("x-forwarded-host");
+    const forwardedProto = request.headers.get("x-forwarded-proto") ?? "https";
+    if (forwardedHost) {
+      return NextResponse.redirect(
+        `${forwardedProto}://${forwardedHost}/login`,
+      );
+    }
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

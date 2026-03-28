@@ -3,9 +3,18 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
-  const { searchParams, origin } = new URL(request.url);
+  const url = new URL(request.url);
+  const searchParams = url.searchParams;
   const code = searchParams.get("code");
   const next = searchParams.get("next") ?? "/";
+
+  // On Cloud Run, request.url uses the internal 0.0.0.0:8080 origin.
+  // Use x-forwarded-host / x-forwarded-proto to build the real public origin.
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  const forwardedProto = request.headers.get("x-forwarded-proto") ?? "https";
+  const origin = forwardedHost
+    ? `${forwardedProto}://${forwardedHost}`
+    : url.origin;
 
   if (code) {
     const cookieStore = await cookies();
