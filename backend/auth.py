@@ -49,8 +49,9 @@ def verify_token(token: str) -> Optional[dict]:
             "role": "admin" if email in ADMIN_EMAILS else "user",
         }
     except jwt.ExpiredSignatureError:
-        logger.debug("Token expired")
+        logger.warning("Token expired")
         return None
     except jwt.InvalidTokenError as e:
-        logger.debug("Invalid token: %s", e)
+        logger.warning("JWT verification failed: %s", e)
+        logger.warning("JWT secret length: %d, first 4 chars: %s", len(jwt_secret), jwt_secret[:4])
         return None
