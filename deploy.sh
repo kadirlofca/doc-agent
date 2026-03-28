@@ -76,7 +76,7 @@ gcloud run deploy ${SERVICE_NAME} \
     --min-instances=0 \
     --max-instances=3 \
     --set-secrets="SUPABASE_URL=SUPABASE_URL:latest,SUPABASE_ANON_KEY=SUPABASE_ANON_KEY:latest,SUPABASE_SERVICE_KEY=SUPABASE_SERVICE_KEY:latest,SUPABASE_JWT_SECRET=SUPABASE_JWT_SECRET:latest" \
-    --set-env-vars="ADMIN_EMAILS=jay98shinde@gmail.com,kadirlofca@outlook.com"
+    --set-env-vars="^:^ADMIN_EMAILS=jay98shinde@gmail.com,kadirlofca@outlook.com"
 
 # ── Step 6: Get URL ──────────────────────────────────────────────────────────
 echo ""
