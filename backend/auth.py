@@ -38,7 +38,7 @@ def verify_token(token: str, supabase_client=None) -> Optional[dict]:
             if response and response.user:
                 user = response.user
                 email = user.email or ""
-                logger.info("Auth OK via Supabase API: user=%s", user.id[:8])
+                logger.debug("Auth OK: user=%s", user.id[:8])
                 return {
                     "user_id": user.id,
                     "email": email,
@@ -54,13 +54,6 @@ def verify_token(token: str, supabase_client=None) -> Optional[dict]:
         return None
 
     try:
-        # Log the token's algorithm for debugging
-        try:
-            header = jwt.get_unverified_header(token)
-            logger.info("JWT header: alg=%s typ=%s", header.get("alg"), header.get("typ"))
-        except Exception:
-            pass
-
         payload = jwt.decode(
             token,
             jwt_secret,
