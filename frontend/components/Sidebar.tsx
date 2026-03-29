@@ -31,6 +31,7 @@ import {
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   activeDocIds: string[];
   onToggleDoc: (docId: string) => void;
+  onSelectAll: (ids: string[]) => void;
   onProviderConnected: () => void;
   refreshTrigger: number;
   onDocumentsUploaded: () => void;
@@ -43,6 +44,7 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
 export function AppSidebar({
   activeDocIds,
   onToggleDoc,
+  onSelectAll,
   onProviderConnected,
   refreshTrigger,
   onDocumentsUploaded,
@@ -54,6 +56,7 @@ export function AppSidebar({
 }: AppSidebarProps) {
   const [supabaseStatus, setSupabaseStatus] = useState<string | null>(null);
   const [docNames, setDocNames] = useState<Record<string, string>>({});
+  const [allDocs, setAllDocs] = useState<Document[]>([]);
 
   useEffect(() => {
     getHealth()
@@ -64,22 +67,20 @@ export function AppSidebar({
       });
   }, []);
 
-  // Fetch doc names for selected docs
+  // Fetch all docs and extract names for selected ones
   const fetchDocNames = useCallback(async () => {
-    if (activeDocIds.length === 0) return;
     try {
       const docs: Document[] = await getDocuments();
+      setAllDocs(docs.filter((d) => d.status === "indexed"));
       const names: Record<string, string> = {};
       for (const doc of docs) {
-        if (activeDocIds.includes(doc.id)) {
-          names[doc.id] = doc.name;
-        }
+        names[doc.id] = doc.name;
       }
       setDocNames(names);
     } catch {
       // ignore
     }
-  }, [activeDocIds]);
+  }, []);
 
   useEffect(() => {
     fetchDocNames();
@@ -137,9 +138,28 @@ export function AppSidebar({
             )}
           </SidebarGroupLabel>
           <SidebarGroupContent>
+            {allDocs.length > 0 && (
+              <div className="flex gap-2 px-2 pb-2">
+                {activeDocIds.length < allDocs.length ? (
+                  <button
+                    onClick={() => onSelectAll(allDocs.map((d) => d.id))}
+                    className="text-[11px] text-primary hover:underline"
+                  >
+                    Select all ({allDocs.length})
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => onSelectAll([])}
+                    className="text-[11px] text-muted-foreground hover:underline"
+                  >
+                    Deselect all
+                  </button>
+                )}
+              </div>
+            )}
             {activeDocIds.length === 0 ? (
               <p className="px-2 py-3 text-center text-[11px] text-muted-foreground">
-                No documents selected. Browse a collection to select documents.
+                No documents selected. Browse a collection or click &quot;Select all&quot; above.
               </p>
             ) : (
               <SidebarMenu>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { useChatRuntime, AssistantChatTransport } from "@assistant-ui/react-ai-sdk";
 import { Thread } from "@/components/assistant-ui/thread";
@@ -8,6 +8,7 @@ import { CollectionCards } from "@/components/CollectionCards";
 import { CollectionView } from "@/components/CollectionView";
 import { AppSidebar } from "@/components/Sidebar";
 import { useAuth } from "@/components/AuthProvider";
+import { getDocuments } from "@/lib/api";
 import {
   SidebarInset,
   SidebarProvider,
@@ -22,6 +23,23 @@ export const Assistant = () => {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [activeCollection, setActiveCollection] = useState<string | null>(null);
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
+
+  // Auto-select all indexed documents on first load
+  useEffect(() => {
+    if (loading || !user) return;
+    getDocuments()
+      .then((docs) => {
+        const indexedIds = docs
+          .filter((d) => d.status === "indexed")
+          .map((d) => d.id);
+        if (indexedIds.length > 0) {
+          setActiveDocIds(indexedIds);
+        }
+      })
+      .catch((e) => console.error("Failed to auto-select docs:", e))
+      .finally(() => setInitialLoadDone(true));
+  }, [loading, user]);
 
   const runtime = useChatRuntime({
     transport: new AssistantChatTransport({
@@ -63,7 +81,7 @@ export const Assistant = () => {
   const showCollectionView = activeCollection !== null;
   const showChat = activeDocIds.length > 0;
 
-  if (loading) {
+  if (loading || !initialLoadDone) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-zinc-950">
         <div className="text-zinc-400">Loading...</div>
@@ -79,6 +97,7 @@ export const Assistant = () => {
             side="right"
             activeDocIds={activeDocIds}
             onToggleDoc={handleToggleDoc}
+            onSelectAll={setActiveDocIds}
             onProviderConnected={handleProviderConnected}
             refreshTrigger={refreshTrigger}
             onDocumentsUploaded={handleDocumentsUploaded}
