@@ -15,7 +15,6 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
-import { LayoutGridIcon } from "lucide-react";
 
 export const Assistant = () => {
   const { user, loading } = useAuth();
@@ -25,16 +24,16 @@ export const Assistant = () => {
   const [activeCollection, setActiveCollection] = useState<string | null>(null);
   const [initialLoadDone, setInitialLoadDone] = useState(false);
 
-  // Auto-select all indexed documents on first load
+  // Auto-select global collection docs (Web Client + Web Server) on first load
   useEffect(() => {
     if (loading || !user) return;
     getDocuments()
       .then((docs) => {
-        const indexedIds = docs
-          .filter((d) => d.status === "indexed")
+        const globalIndexedIds = docs
+          .filter((d) => d.status === "indexed" && d.is_global)
           .map((d) => d.id);
-        if (indexedIds.length > 0) {
-          setActiveDocIds(indexedIds);
+        if (globalIndexedIds.length > 0) {
+          setActiveDocIds(globalIndexedIds);
         }
       })
       .catch((e) => console.error("Failed to auto-select docs:", e))
@@ -77,7 +76,8 @@ export const Assistant = () => {
   }, []);
 
   // Determine what to show in the main area
-  const showCollectionCards = activeCollection === null && activeDocIds.length === 0;
+  // Collection cards are the home view — always shown when no specific collection is open
+  const showCollectionCards = activeCollection === null;
   const showCollectionView = activeCollection !== null;
   const showChat = activeDocIds.length > 0;
 
@@ -108,29 +108,21 @@ export const Assistant = () => {
           />
           <SidebarInset>
             <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
-              <h1 className="text-sm font-medium">
-                {showChat
-                  ? `${activeDocIds.length} document${activeDocIds.length > 1 ? "s" : ""} selected`
-                  : "Doc Agent"}
-              </h1>
+              <h1 className="text-sm font-medium">Doc Agent</h1>
+              {activeDocIds.length > 0 && (
+                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                  {activeDocIds.length} doc{activeDocIds.length !== 1 ? "s" : ""} selected
+                </span>
+              )}
               <div className="ml-auto flex items-center gap-2">
-                {showChat && (
-                  <button
-                    onClick={handleBackToCollections}
-                    className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                  >
-                    <LayoutGridIcon className="size-3.5" />
-                    Collections
-                  </button>
-                )}
                 <Separator orientation="vertical" className="h-4" />
                 <SidebarTrigger />
               </div>
             </header>
 
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex flex-1 flex-col overflow-y-auto">
               {showCollectionCards && (
-                <CollectionCards onSelectCollection={setActiveCollection} />
+                <CollectionCards onSelectCollection={setActiveCollection} activeDocIds={activeDocIds} />
               )}
 
               {showCollectionView && (
@@ -144,8 +136,8 @@ export const Assistant = () => {
                 />
               )}
 
-              {showChat && (
-                <div className="h-full">
+              {showChat && !showCollectionView && (
+                <div className="flex-1">
                   <Thread />
                 </div>
               )}
