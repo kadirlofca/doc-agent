@@ -8,7 +8,7 @@ import { CollectionCards } from "@/components/CollectionCards";
 import { CollectionView } from "@/components/CollectionView";
 import { AppSidebar } from "@/components/Sidebar";
 import { useAuth } from "@/components/AuthProvider";
-import { getDocuments } from "@/lib/api";
+import { getCollectionDocuments } from "@/lib/api";
 import {
   SidebarInset,
   SidebarProvider,
@@ -22,23 +22,25 @@ export const Assistant = () => {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [activeCollection, setActiveCollection] = useState<string | null>(null);
-  const [initialLoadDone, setInitialLoadDone] = useState(false);
 
-  // Auto-select global collection docs (Web Client + Web Server) on first load
+  const GLOBAL_COLLECTIONS = ["curam_web_client", "curam_web_server"];
+
+  // When a collection is opened, auto-select all its indexed docs if global
   useEffect(() => {
-    if (loading || !user) return;
-    getDocuments()
+    if (!activeCollection) return;
+    if (!GLOBAL_COLLECTIONS.includes(activeCollection)) return;
+
+    getCollectionDocuments(activeCollection)
       .then((docs) => {
-        const globalIndexedIds = docs
-          .filter((d) => d.status === "indexed" && d.is_global)
+        const indexedIds = docs
+          .filter((d) => d.status === "indexed")
           .map((d) => d.id);
-        if (globalIndexedIds.length > 0) {
-          setActiveDocIds(globalIndexedIds);
+        if (indexedIds.length > 0) {
+          setActiveDocIds(indexedIds);
         }
       })
-      .catch((e) => console.error("Failed to auto-select docs:", e))
-      .finally(() => setInitialLoadDone(true));
-  }, [loading, user]);
+      .catch((e) => console.error("Failed to auto-select collection docs:", e));
+  }, [activeCollection]);
 
   const runtime = useChatRuntime({
     transport: new AssistantChatTransport({
@@ -73,15 +75,15 @@ export const Assistant = () => {
 
   const handleBackToCollections = useCallback(() => {
     setActiveCollection(null);
+    setActiveDocIds([]);
+    setActiveConversationId(null);
   }, []);
 
-  // Determine what to show in the main area
-  // Collection cards are the home view — always shown when no specific collection is open
-  const showCollectionCards = activeCollection === null;
-  const showCollectionView = activeCollection !== null;
+  // Home = cards only; collection open = doc list + chat
+  const isHome = activeCollection === null;
   const showChat = activeDocIds.length > 0;
 
-  if (loading || !initialLoadDone) {
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-zinc-950">
         <div className="text-zinc-400">Loading...</div>
@@ -120,28 +122,36 @@ export const Assistant = () => {
               </div>
             </header>
 
-            <div className="flex flex-1 flex-col overflow-y-auto">
-              {showCollectionCards && (
-                <CollectionCards onSelectCollection={setActiveCollection} activeDocIds={activeDocIds} />
-              )}
-
-              {showCollectionView && (
-                <CollectionView
-                  collectionId={activeCollection}
-                  activeDocIds={activeDocIds}
-                  onToggleDoc={handleToggleDoc}
-                  onBack={handleBackToCollections}
-                  onDocumentsUploaded={handleDocumentsUploaded}
-                  userRole={user?.role}
-                />
-              )}
-
-              {showChat && !showCollectionView && (
-                <div className="flex-1">
-                  <Thread />
+            {isHome ? (
+              <div className="flex-1 overflow-y-auto">
+                <CollectionCards onSelectCollection={setActiveCollection} />
+              </div>
+            ) : (
+              <div className="flex flex-1 overflow-hidden">
+                {/* Left panel: collection doc list */}
+                <div className="w-80 shrink-0 overflow-y-auto border-r">
+                  <CollectionView
+                    collectionId={activeCollection}
+                    activeDocIds={activeDocIds}
+                    onToggleDoc={handleToggleDoc}
+                    onBack={handleBackToCollections}
+                    onDocumentsUploaded={handleDocumentsUploaded}
+                    userRole={user?.role}
+                  />
                 </div>
-              )}
-            </div>
+
+                {/* Right panel: chat */}
+                <div className="flex-1">
+                  {showChat ? (
+                    <Thread />
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                      Select documents to start chatting
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </SidebarInset>
         </div>
       </SidebarProvider>
